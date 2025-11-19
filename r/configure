@@ -1,0 +1,120 @@
+# Even when `cargo` is on `PATH`, `rustc` might not in some cases. This adds
+# ~/.cargo/bin to PATH to address such cases. Note that is not always available
+# (e.g. or on Ubuntu with Rust installed via APT).
+if [ -d "${HOME}/.cargo/bin" ]; then
+  export PATH="${PATH}:${HOME}/.cargo/bin"
+fi
+
+PKG_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+VENDOR_DIR="${PKG_DIR}/src/rust/vendor"
+OD2NET_VENDOR="${VENDOR_DIR}/od2net"
+LTS_VENDOR="${VENDOR_DIR}/lts"
+
+clean_vendor_dir() {
+  dir="$1"
+  rm -rf "${dir}/.git" "${dir}/.github" "${dir}/.cargo"
+  if [ -d "${dir}/savvy" ]; then
+    rm -rf \
+      "${dir}/savvy/.git" \
+      "${dir}/savvy/.github" \
+      "${dir}/savvy/.cargo" \
+      "${dir}/savvy/R-package"
+    rm -rf "${dir}/savvy/savvy-macro/src/snapshots"
+  fi
+}
+
+ensure_vendored_crate() {
+  crate_name="$1"
+  source_hint="$2"
+  vendor_path="$3"
+
+  existing_copy="${vendor_path}/Cargo.toml"
+
+  source_path=""
+  if [ -d "${source_hint}/src" ]; then
+    resolved="$(CDPATH= cd -- "${source_hint}" && pwd)"
+    if [ "${resolved}" != "${PKG_DIR}" ]; then
+      source_path="${resolved}"
+    fi
+  fi
+
+  if [ -n "${source_path}" ]; then
+    rm -rf "${vendor_path}"
+    mkdir -p "${vendor_path}"
+    echo "Vendoring ${crate_name} crate from ${source_path}"
+    if command -v rsync >/dev/null 2>&1; then
+      rsync -a --delete --exclude target --exclude .git "${source_path}/" "${vendor_path}/"
+    else
+      cp -R "${source_path}/." "${vendor_path}/"
+      rm -rf "${vendor_path}/.git" "${vendor_path}/target"
+    fi
+    clean_vendor_dir "${vendor_path}"
+    return 0
+  fi
+
+  if [ -f "${existing_copy}" ]; then
+    echo "Using pre-vendored ${crate_name} crate at ${vendor_path}"
+    clean_vendor_dir "${vendor_path}"
+    return 0
+  fi
+
+  cat >&2 <<EOF
+configure: unable to locate the ${crate_name} Rust crate.
+Set ${crate_name^^}_SOURCE=/absolute/path/to/${crate_name} before running R CMD build/check.
+EOF
+  exit 1
+}
+
+OD2NET_SOURCE_HINT="${OD2NET_SOURCE:-${PKG_DIR}/../od2net}"
+LTS_SOURCE_HINT="${LTS_SOURCE:-${PKG_DIR}/../lts}"
+
+ensure_vendored_crate "od2net" "${OD2NET_SOURCE_HINT}" "${OD2NET_VENDOR}"
+ensure_vendored_crate "lts" "${LTS_SOURCE_HINT}" "${LTS_VENDOR}"
+
+CARGO_VERSION="$(cargo --version)"
+
+if [ $? -ne 0 ]; then
+  echo "-------------- ERROR: CONFIGURATION FAILED --------------------"
+  echo ""
+  echo "The cargo command is not available. To install Rust, please refer"
+  echo "to the official instruction:"
+  echo ""
+  echo "https://www.rust-lang.org/tools/install"
+  echo ""
+  echo "---------------------------------------------------------------"
+
+  exit 1
+fi
+
+# There's a little chance that rustc is not available on PATH while cargo is.
+# So, just ignore the error case.
+RUSTC_VERSION="$(rustc --version || true)"
+
+# Report the version of Rustc to comply with the CRAN policy
+echo "using Rust package manager: '${CARGO_VERSION}'"
+echo "using Rust compiler: '${RUSTC_VERSION}'"
+
+if [ "$(uname)" = "Emscripten" ]; then
+  TARGET="wasm32-unknown-emscripten"
+fi
+
+# allow overriding profile externally (e.g. on CI)
+if [ -n "${SAVVY_PROFILE}" ]; then
+  PROFILE="${SAVVY_PROFILE}"
+# catch DEBUG envvar, which is passed from pkgbuild::compile_dll()
+elif [ "${DEBUG}" = "true" ]; then
+  PROFILE=dev
+else
+  PROFILE=release
+fi
+
+# e.g. SAVVY_FEATURES="a b"  -->  "--features 'a b'"
+if [ -n "${SAVVY_FEATURES}" ]; then
+  FEATURE_FLAGS="--features '${SAVVY_FEATURES}'"
+fi
+
+sed \
+  -e "s/@TARGET@/${TARGET}/" \
+  -e "s/@PROFILE@/${PROFILE}/" \
+  -e "s/@FEATURE_FLAGS@/${FEATURE_FLAGS}/" \
+  src/Makevars.in > src/Makevars

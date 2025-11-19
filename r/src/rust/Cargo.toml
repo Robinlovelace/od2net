@@ -1,0 +1,21 @@
+[package]
+name = "od2netr"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "od2net"
+crate-type = ["staticlib", "lib"]
+
+[dependencies]
+anyhow = "1"
+bincode = "1"
+fs-err = "2"
+geojson = { git = "https://github.com/georust/geojson" }
+od2net = { path = "vendor/od2net" }
+osm-reader = { git = "https://github.com/a-b-street/osm-reader", features = ["serde"] }
+savvy = "0.8.14"
+
+[features]
+default = []
+savvy-test = []

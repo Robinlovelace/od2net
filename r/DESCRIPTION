@@ -1,29 +1,18 @@
 Package: od2net
-Title: Convert 'Origin-Destination' Data to Route Networks
+Title: Interface to od2net routing engine
 Version: 0.0.0.9000
-Authors@R: c(
-    person("Robin", "Lovelace", , "rob00x@gmail.com", role = c("aut", "cre"),
-           comment = c(ORCID = "0000-0001-5679-6536")),
-    person("Dustin", "Carlino", role = "aut")
-  )
-Description: Functions and documentation to support route network
-    generation.
+Authors@R: person("Robin", "Lovelace", email = "rob00x@gmail.com", role = c("aut", "cre"))
+Description: R bindings for the od2net routing engine via savvy.
 License: Apache License (>= 2)
-URL: https://urban-analytics-technology-platform.github.io/od2net/r/,
-    https://github.com/urban-analytics-technology-platform/od2net
-BugReports: 
-    https:/github.com/urban-analytics-technology-platform/od2net/issues
-Depends: 
-    R (>= 2.10)
-Imports: 
-    osmextract,
-    sf
-Suggests:
-    dplyr,
-    R.utils,
-    readr,
-    simodels (>= 0.1.0)
 Encoding: UTF-8
 LazyData: true
+Imports:
+	tibble,
+	sf,
+	osmextract
+Suggests:
+	testthat (>= 3.0.0)
+Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
+SystemRequirements: Cargo (Rust's package manager), rustc
