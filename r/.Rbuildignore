@@ -6,3 +6,8 @@
 ^output$
 ^intermediate$
 ^config\.json$
+
+^src/rust/\.cargo$
+^src/rust/target$
+^src/Makevars$
+^src/Makevars\.win$

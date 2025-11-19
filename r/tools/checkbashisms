@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Lightweight wrapper so R CMD check can run checkbashisms locally if available.
+if command -v checkbashisms >/dev/null 2>&1; then
+  exec checkbashisms "$@"
+else
+  echo "checkbashisms not installed; skipping shell script lint" >&2
+  exit 0
+fi

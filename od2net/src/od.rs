@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::io::BufReader;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use fs_err::File;
-use geo::{BoundingRect, Centroid, Contains, MultiPolygon};
+use geo::{BoundingRect, Centroid, Contains, MultiPolygon, Point};
 use geojson::{FeatureReader, Value};
 use indicatif::HumanCount;
-use nanorand::{Rng, WyRand};
-use rstar::{RTree, AABB};
+use rand::{prelude::SliceRandom, rngs::StdRng, SeedableRng};
+use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use serde::Deserialize;
 
 use super::config::{ODPattern, Requests};
@@ -53,10 +53,12 @@ pub fn generate_requests(
             ));
             for pt in origins {
                 requests.push(Request {
-                    x1: pt.0,
-                    y1: pt.1,
-                    x2: destinations[0].0,
-                    y2: destinations[0].1,
+                    x1: pt.lon,
+                    y1: pt.lat,
+                    x2: destinations[0].lon,
+                    y2: destinations[0].lat,
+                    origin: None,
+                    destination: None,
                 });
             }
             timer.stop();
@@ -70,12 +72,14 @@ pub fn generate_requests(
                 HumanCount(origins.len() as u64),
             ));
             for pt in origins {
-                let goto = closest.nearest_neighbor(&pt).unwrap();
+                let goto = closest.nearest_neighbor(&(pt.lon, pt.lat)).unwrap();
                 requests.push(Request {
-                    x1: pt.0,
-                    y1: pt.1,
-                    x2: goto.0,
-                    y2: goto.1,
+                    x1: pt.lon,
+                    y1: pt.lat,
+                    x2: goto.lon,
+                    y2: goto.lat,
+                    origin: None,
+                    destination: None,
                 });
             }
             timer.stop();
@@ -104,28 +108,30 @@ pub fn generate_requests(
             timer.stop();
 
             timer.start(format!("Generating requests from {csv_path}"));
-            let mut rng = WyRand::new_seed(rng_seed);
+            let mut rng = StdRng::seed_from_u64(rng_seed);
 
             for rec in csv::Reader::from_reader(File::open(csv_path)?).deserialize() {
                 let row: BetweenZonesRow = rec?;
+                let Some(from_points) = origins_per_zone.get(&row.from) else {
+                    bail!("Unknown zone {}", row.from);
+                };
+                let Some(to_points) = destinations_per_zone.get(&row.to) else {
+                    bail!("Unknown zone {}", row.to);
+                };
                 for _ in 0..row.count {
-                    let from = match origins_per_zone.get(&row.from) {
-                        Some(points) => points[rng.generate_range(0..points.len())],
-                        None => {
-                            bail!("Unknown zone {}", row.from);
-                        }
-                    };
-                    let to = match destinations_per_zone.get(&row.to) {
-                        Some(points) => points[rng.generate_range(0..points.len())],
-                        None => {
-                            bail!("Unknown zone {}", row.to);
-                        }
-                    };
+                    // TODO choose_weighted is O(n); there are alternatives if this ever becomes a
+                    // problem.
+                    let from = from_points
+                        .choose_weighted(&mut rng, |pt| pt.weight)
+                        .unwrap();
+                    let to = to_points.choose_weighted(&mut rng, |pt| pt.weight).unwrap();
                     requests.push(Request {
-                        x1: from.0,
-                        y1: from.1,
-                        x2: to.0,
-                        y2: to.1,
+                        x1: from.lon,
+                        y1: from.lat,
+                        x2: to.lon,
+                        y2: to.lat,
+                        origin: Some(row.from.clone()),
+                        destination: Some(row.to.clone()),
                     });
                 }
             }
@@ -154,28 +160,27 @@ pub fn generate_requests(
             timer.stop();
 
             timer.start(format!("Generating requests from {csv_path}"));
-            let mut rng = WyRand::new_seed(rng_seed);
+            let mut rng = StdRng::seed_from_u64(rng_seed);
 
             for rec in csv::Reader::from_reader(File::open(csv_path)?).deserialize() {
                 let row: BetweenZonesRow = rec?;
+                let Some(from_points) = origins_per_zone.get(&row.from) else {
+                    bail!("Unknown zone {}", row.from);
+                };
+                let Some(to) = destinations.get(&row.to) else {
+                    bail!("Unknown destination {}", row.to);
+                };
                 for _ in 0..row.count {
-                    let from = match origins_per_zone.get(&row.from) {
-                        Some(points) => points[rng.generate_range(0..points.len())],
-                        None => {
-                            bail!("Unknown zone {}", row.from);
-                        }
-                    };
-                    let to = match destinations.get(&row.to) {
-                        Some(pt) => *pt,
-                        None => {
-                            bail!("Unknown destination {}", row.to);
-                        }
-                    };
+                    let from = from_points
+                        .choose_weighted(&mut rng, |pt| pt.weight)
+                        .unwrap();
                     requests.push(Request {
-                        x1: from.0,
-                        y1: from.1,
+                        x1: from.lon,
+                        y1: from.lat,
                         x2: to.0,
                         y2: to.1,
+                        origin: Some(row.from.clone()),
+                        destination: Some(row.to.clone()),
                     });
                 }
             }
@@ -191,7 +196,14 @@ pub fn generate_requests(
                 let (x1, y1) = from.to_degrees();
                 for to in network.intersections.values() {
                     let (x2, y2) = to.to_degrees();
-                    requests.push(Request { x1, y1, x2, y2 });
+                    requests.push(Request {
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        origin: None,
+                        destination: None,
+                    });
                 }
             }
         }
@@ -200,16 +212,48 @@ pub fn generate_requests(
     Ok(requests)
 }
 
-// TODO Use geo?
-fn load_points(path: String) -> Result<Vec<(f64, f64)>> {
+/// A point with an associated relative weight. Higher weights are more likely to be sampled.
+#[derive(Clone, Copy)]
+struct WeightedPoint {
+    // TODO Use geo? Could maybe just read in one big batch and have more validation
+    lon: f64,
+    lat: f64,
+    weight: f64,
+}
+
+// TODO Is GeomWithData simpler?
+impl RTreeObject for WeightedPoint {
+    type Envelope = AABB<(f64, f64)>;
+
+    fn envelope(&self) -> Self::Envelope {
+        AABB::from_point((self.lon, self.lat))
+    }
+}
+
+impl PointDistance for WeightedPoint {
+    fn distance_2(&self, point: &(f64, f64)) -> f64 {
+        // Use Euclidean distance on WGS84
+        (self.lon - point.0).powi(2) + (self.lat - point.1).powi(2)
+    }
+}
+
+fn load_points(path: String) -> Result<Vec<WeightedPoint>> {
     println!("Loading points from {path}");
     let reader = FeatureReader::from_reader(BufReader::new(File::open(path)?));
     let mut points = Vec::new();
     for feature in reader.features() {
         let feature = feature?;
-        if let Some(geometry) = feature.geometry {
-            if let Value::Point(pt) = geometry.value {
-                points.push((pt[0], pt[1]));
+        if let Some(ref geometry) = feature.geometry {
+            if let Value::Point(pt) = &geometry.value {
+                let weight = feature
+                    .property("weight")
+                    .and_then(|x| x.as_f64())
+                    .unwrap_or(1.0);
+                points.push(WeightedPoint {
+                    lon: pt[0],
+                    lat: pt[1],
+                    weight,
+                });
             }
         }
     }
@@ -244,10 +288,10 @@ fn load_named_points(path: &str) -> Result<HashMap<String, (f64, f64)>> {
 
 fn points_per_polygon(
     name: &str,
-    points: Vec<(f64, f64)>,
-    polygons: &HashMap<String, MultiPolygon<f64>>,
+    points: Vec<WeightedPoint>,
+    polygons: &HashMap<String, MultiPolygon>,
     use_centroids_for_empty_zones: bool,
-) -> Result<HashMap<String, Vec<(f64, f64)>>> {
+) -> Result<HashMap<String, Vec<WeightedPoint>>> {
     let tree = RTree::bulk_load(points);
 
     let mut empty = Vec::new();
@@ -259,7 +303,7 @@ fn points_per_polygon(
         let max = bounds.max();
         let envelope: AABB<(f64, f64)> = AABB::from_corners((min.x, min.y), (max.x, max.y));
         for pt in tree.locate_in_envelope(&envelope) {
-            if polygon.contains(&geo::Point::new(pt.0, pt.1)) {
+            if polygon.contains(&Point::new(pt.lon, pt.lat)) {
                 pts_inside.push(*pt);
             }
         }
@@ -278,7 +322,14 @@ fn points_per_polygon(
     );
     for key in empty {
         if let Some(centroid) = polygons[key].centroid() {
-            output.insert(key.clone(), vec![centroid.into()]);
+            output.insert(
+                key.clone(),
+                vec![WeightedPoint {
+                    lon: centroid.x(),
+                    lat: centroid.y(),
+                    weight: 1.0,
+                }],
+            );
         } else {
             bail!("{key} had no matching {name} points, and couldn't calculate its centroid");
         }
@@ -287,20 +338,12 @@ fn points_per_polygon(
     Ok(output)
 }
 
-// TODO Can we use this?
-/*#[derive(Deserialize)]
-struct Zone {
-    #[serde(deserialize_with = "deserialize_geometry")]
-    geometry: geo_types::MultiPolygon<f64>,
-    name: String,
-}*/
-
 /// Extract multipolygon zones from a GeoJSON file, using the "name" property as the key in the
 /// resulting map.
-fn load_zones(geojson_path: &str) -> Result<HashMap<String, MultiPolygon<f64>>> {
+fn load_zones(geojson_path: &str) -> Result<HashMap<String, MultiPolygon>> {
     let reader = FeatureReader::from_reader(BufReader::new(File::open(geojson_path)?));
 
-    let mut zones: HashMap<String, MultiPolygon<f64>> = HashMap::new();
+    let mut zones: HashMap<String, MultiPolygon> = HashMap::new();
     for feature in reader.features() {
         let feature = feature?;
         if let Some(zone_name) = feature
@@ -309,7 +352,7 @@ fn load_zones(geojson_path: &str) -> Result<HashMap<String, MultiPolygon<f64>>> 
             .map(|x| x.to_string())
         {
             let gj_geom: geojson::Geometry = feature.geometry.unwrap();
-            let geo_geometry: geo::Geometry<f64> = gj_geom.try_into().unwrap();
+            let geo_geometry: geo::Geometry = gj_geom.try_into().unwrap();
             if let geo::Geometry::MultiPolygon(mp) = geo_geometry {
                 zones.insert(zone_name, mp);
             } else if let geo::Geometry::Polygon(p) = geo_geometry {

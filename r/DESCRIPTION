@@ -1,23 +1,18 @@
 Package: od2net
-Title: What the Package Does (One Line, Title Case)
+Title: Interface to od2net routing engine
 Version: 0.0.0.9000
-Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"),
-           comment = c(ORCID = "YOUR-ORCID-ID"))
-Description: What the package does (one paragraph).
+Authors@R: person("Robin", "Lovelace", email = "rob00x@gmail.com", role = c("aut", "cre"))
+Description: R bindings for the od2net routing engine via savvy.
 License: Apache License (>= 2)
 Encoding: UTF-8
-Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
-Imports: 
-    osmextract,
-    sf
-Suggests:
-    simodels (>= 0.1.0),
-    readr,
-    dplyr,
-    R.utils,
-Depends: 
-    R (>= 2.10)
 LazyData: true
-URL: https://urban-analytics-technology-platform.github.io/od2net/r/, https://github.com/urban-analytics-technology-platform/od2net
+Imports:
+	tibble,
+	sf,
+	osmextract
+Suggests:
+	testthat (>= 3.0.0)
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+SystemRequirements: Cargo (Rust's package manager), rustc
