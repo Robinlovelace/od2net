@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use fs_err::File;
 
 use geojson::{Feature, FeatureReader, Geometry, Value};

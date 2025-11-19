@@ -31,3 +31,13 @@ instant = "0.1.12"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 instant = { version = "0.1.12", features = ["wasm-bindgen"] }
+
+# --- Defines the library (for your R package to link to) ---
+[lib]
+name = "od2net"
+path = "src/lib.rs"
+
+# --- Defines the executable (for CLI use) ---
+[[bin]]
+name = "od2net"
+path = "src/main.rs"

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::BufReader;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use fs_err::File;
 use geo::{BoundingRect, Centroid, Contains, MultiPolygon};
 use geojson::{FeatureReader, Value};

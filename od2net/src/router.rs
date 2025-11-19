@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use rstar::primitives::GeomWithData;
 use rstar::RTree;
 use serde::{Deserialize, Serialize};
+use log::debug;
 
 use super::config::Uptake;
 use super::network::{Counts, Network, Position};
