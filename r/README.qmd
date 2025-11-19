@@ -1,5 +1,5 @@
 ---
-title: Preparing OD data for network generation with od2net
+title: "od2net R package: prepare datasets for network generation with od2net"
 #| eval: false
 #| echo: false
 format: gfm
@@ -9,6 +9,16 @@ execute:
 ---
 
 This R package provides functions to prepare OD data for network generation with the `od2net` tool, as illustrated in the example below.
+
+## Installation
+
+```{r}
+# Install pak if not already installed:
+if (!requireNamespace("pak", quietly = TRUE)) {
+  install.packages("pak")
+}
+pak::pkg_install("Urban-Analytics-Technology-Platform/od2net/r")
+```
 
 ## Example
 
@@ -83,11 +93,6 @@ make_elevation = function(
 
 ```{r}
 #| eval: false
-# Install pak if not already installed:
-if (!requireNamespace("pak", quietly = TRUE)) {
-  install.packages("pak")
-}
-pak::pkg_install("robinlovelace/od2net/r@67-r-port")
 dir.create("input", showWarnings = FALSE)
 # Get some zones from a URL:
 uz = "https://github.com/acteng/netgen/raw/main/input/zones_york.geojson"
@@ -116,8 +121,8 @@ readr::write_csv(od, "input/od.csv", quote = "all")
 Then create a config.json file, e.g. with the following content:
 
 ```{r}
-#| output: asis
-readLines("config.json")
+#| warning: false
+readLines("config.json") |> cat(sep = "\n")
 ```
 
 Then run the following code to generate the network:

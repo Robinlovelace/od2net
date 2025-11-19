@@ -45,9 +45,11 @@ pub enum ODPattern {
         /// Path to a CSV file that must have 3 columns "from", "to", and "count". The first
         /// two must match zone names. "count" must be an integer.
         csv_path: String,
-        /// If a zone doesn't have any matching origin points, use the zone's centroid instead.
+        /// If a zone doesn't have any matching origin points, use the zone's centroid instead. The
+        /// centroid weight will be 1.
         origin_zone_centroid_fallback: bool,
-        /// If a zone doesn't have any matching destination points, use the zone's centroid instead.
+        /// If a zone doesn't have any matching destination points, use the zone's centroid
+        /// instead. The centroid weight will be 1.
         destination_zone_centroid_fallback: bool,
     },
     ZoneToPoint {
@@ -58,7 +60,8 @@ pub enum ODPattern {
         csv_path: String,
         /// Path to a GeoJSON file containing Points with a "name" property
         destinations_path: String,
-        /// If a zone doesn't have any matching origin points, use the zone's centroid instead.
+        /// If a zone doesn't have any matching origin points, use the zone's centroid instead. The
+        /// centroid weight will be 1.
         origin_zone_centroid_fallback: bool,
     },
     /// Just read GeoJSON LineStrings from this path
@@ -147,12 +150,20 @@ pub enum Uptake {
     GovTargetPCT,
     /// Defined by https://github.com/ITSLeeds/pct/blob/HEAD/R/uptake.R
     GoDutchPCT,
+    // TODO describe
+    WalkToSchool {
+        upper_limit: f64,
+        exponent: f64,
+    },
+    GovTargetSchool,
+    GoDutchSchool,
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum LtsMapping {
     SpeedLimitOnly,
     BikeOttawa,
+    Walking,
     /// Run this command to calculate LTS. STDIN will contain a JSON array of objects, each with
     /// OSM tags representing one segment. The output must be an equally sized JSON array of
     /// numbers 0-4, representing the resulting LTS.
